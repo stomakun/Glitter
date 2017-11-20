@@ -67,11 +67,12 @@ static const char *fragment_shader_text = "#version 330 core\n"
     "uniform sampler2D texture1;\n"
     "out vec4 color;\n"
     "void main() {\n"
-    "  // TODO(zhixunt): Calculate pixel index.\n"
     "  ivec2 pixel = ivec2(gl_FragCoord.xy);\n"
+    "  float input0 = texelFetch(texture0, pixel, 0).r;\n"
+    "  float input1 = texelFetch(texture1, pixel, 0).r;\n"
     "  color = vec4(\n"
-    "    texelFetch(texture0, pixel, 0).r,\n"
-    "    texelFetch(texture1, pixel, 0).r,\n"
+    "    input0 + input1,\n"
+    "    0.0,\n"
     "    0.0,\n"
     "    1.0\n"
     "  );\n"
@@ -223,7 +224,7 @@ int main() {
 
   std::random_device rd;
   std::mt19937 mt(rd());
-  std::uniform_real_distribution<float> dist(0.0f, 1.0f);
+  std::uniform_real_distribution<float> dist(1.0f, 2.0f);
 
   std::vector<GLfloat> texture0_data(texture_size, 0.0f);
   for (size_t i = 0; i != texture_size; ++i) {
@@ -317,7 +318,7 @@ Texture::Texture(const GLfloat *data, GLsizei width, GLsizei height)
   workspace.BindTextureUnit(workspace.NumTextureUnits() - 1, texture_);
 
   // Similar to cudaMemcpy.
-  OPENGL_CALL(glTexImage2D(GL_TEXTURE_2D, /*level=*/0, GL_RED,
+  OPENGL_CALL(glTexImage2D(GL_TEXTURE_2D, /*level=*/0, GL_R32F,
                            width_, height_, /*border=*/0,
                            GL_RED, GL_FLOAT, data));
 
@@ -403,8 +404,8 @@ Workspace::Workspace() {
     assert(false);
   }
 
-  GLint width = 640;
-  GLint height = 480;
+  GLint width = 25;
+  GLint height = 1;
 
   // Create a window.
   // TODO(zhixunt): GLFW allows us to create an invisible window.
@@ -508,6 +509,18 @@ void Workspace::Render(
   if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
     std::cout << "Framebuffer not complete." << std::endl;
     assert(false);
+  }
+
+  // Tell the fragment shader what input textures to use.
+  for (GLuint unit = 0; unit != inputs.size(); ++unit) {
+    const std::string &name = inputs[unit].first;
+    Texture *texture = inputs[unit].second;
+
+    BindTextureUnit(unit, *texture);
+
+    GLint texture_uniform = glGetUniformLocation(program.program_,
+                                                 name.c_str());
+    OPENGL_CALL(glUniform1i(texture_uniform, unit));
   }
 
   OPENGL_CALL(glBindFramebuffer(GL_FRAMEBUFFER, frame_buffer));
