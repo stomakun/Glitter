@@ -11,7 +11,7 @@ add_subdirectory(Glitter/Vendor/glfw)
 #option(ASSIMP_BUILD_TESTS OFF)
 #add_subdirectory(Glitter/Vendor/assimp)
 
-option(BUILD_BULLET2_DEMOS OFF)
+#option(BUILD_BULLET2_DEMOS OFF)
 option(BUILD_CPU_DEMOS OFF)
 option(BUILD_EXTRAS OFF)
 option(BUILD_OPENGL3_DEMOS OFF)
@@ -29,7 +29,7 @@ endif()
 
 include_directories(Glitter/Headers/
                     #Glitter/Vendor/assimp/include/
-                    Glitter/Vendor/bullet/src/
+#                    Glitter/Vendor/bullet/src/
                     Glitter/Vendor/glad/include/
                     Glitter/Vendor/glfw/include/
                     Glitter/Vendor/glm/
@@ -61,7 +61,10 @@ add_executable(${PROJECT_NAME} ${PROJECT_SOURCES} ${PROJECT_HEADERS}
 target_link_libraries(${PROJECT_NAME}
                       # assimp
                       glfw
-                      ${GLFW_LIBRARIES} ${GLAD_LIBRARIES}
-                      BulletDynamics BulletCollision LinearMath)
+                      ${GLFW_LIBRARIES}
+                      ${GLAD_LIBRARIES}
+#                      BulletDynamics
+#                      BulletCollision
+                      LinearMath)
 set_target_properties(${PROJECT_NAME} PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/${PROJECT_NAME})
