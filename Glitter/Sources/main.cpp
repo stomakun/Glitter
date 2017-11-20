@@ -1,19 +1,11 @@
-// Local Headers
-#include "glitter.hpp"
-
-// System Headers
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
 
-// Standard Headers
-#include <cstdio>
-#include <cstdlib>
-
 #include <cassert>
-
+#include <iostream>
 #include <memory>
 #include <vector>
-#include <iostream>
+#include <random>
 
 namespace gl {
 
@@ -40,7 +32,7 @@ inline const char *GLGetErrorString(GLenum error) {
 
 }  // namespace gl
 
-void OPENGL_ABSORB_ERROS() {
+void OPENGL_ABSORB_ERRORS() {
   while (glGetError() != GL_NO_ERROR);
 }
 
@@ -69,33 +61,8 @@ void GlfwErrorCallback(int err, const char *str) {
   std::cerr << "Error: [" << err << "] " << str << std::endl;
 }
 
-// Don't need to change this.
-// We want to draw 2 giant triangles that cover the whole screen.
-struct Vertex {
-  float x, y;
-};
-Vertex vertices[] = {
-    {-1.f, -1.f},
-    {1.0f, -1.f},
-    {1.0f, 1.0f},
-    {-1.f, -1.f},
-    {-1.f, 1.0f},
-    {1.0f, 1.0f},
-};
-
-// Don't need to change this.
-// The vertex shader only needs to take in the triangle points.
-// No need for point transformations.
-static const char *vertex_shader_text = "#version 330 core\n"
-    "in vec2 point; // input to vertex shader\n"
-    "void main() {\n"
-    "  gl_Position = vec4(point, 0.0, 1.0);\n"
-    "}\n";
-
 // This is the main part.
 static const char *fragment_shader_text = "#version 330 core\n"
-    "uniform int width;\n"
-    "uniform int height;\n"
     "uniform sampler2D texture0;\n"
     "uniform sampler2D texture1;\n"
     "out vec4 color;\n"
@@ -110,24 +77,60 @@ static const char *fragment_shader_text = "#version 330 core\n"
     "  );\n"
     "}\n";
 
-// The following functions don't need to be understood.
-// They are standard practices.
-GLuint CreateShader(GLenum shader_kind, const char *shader_src);
+/*!
+ * \brief An OpenGL program, composed of a vertex shader and a fragment shader.
+ * In TVM, every program has the same vertex shader.
+ * So a program just corresponds to a fragment shader.
+ * A program can only be created by the workspace.
+ * This class is just a wrapper over an OpenGL program ID.
+ */
+class Program {
+ public:
+  // Move constructor.
+  Program(Program &&other) noexcept;
 
-GLuint CreateProgram(GLuint vertex_shader, GLuint fragment_shader);
+  // Cannot be copied.
+  Program(const Program &other) = delete;
 
-GLuint CreateProgram(const char *vertex_shader, const char *fragment_shader);
+  // Cannot be assigned.
+  Program &operator=(const Program &other) = delete;
 
+  // Destructor.
+  ~Program();
+
+ private:
+  friend class Workspace;
+
+  // Only a workspace can construct a program.
+  explicit Program(GLuint program);
+
+  // The internal OpenGL program ID.
+  GLuint program_;
+
+  static const GLuint kInvalidProgram = static_cast<GLuint>(-1);
+};
+
+/*!
+ * An OpenGL texture represents a chunk of GPU memory.
+ * This is the way we represent tensors.
+ * We always use 2D textures.
+ */
 class Texture {
  public:
   explicit Texture(const GLfloat *data, GLsizei width, GLsizei height);
+
   ~Texture();
+
   Texture(Texture &&other) noexcept;
+
   Texture(const Texture &other) = delete;
+
   Texture &operator=(const Texture &other) = delete;
 
   GLuint texture() const { return texture_; }
+
   GLsizei width() const { return width_; }
+
   GLsizei height() const { return height_; }
 
   void GetData(GLfloat *data) const;
@@ -140,22 +143,251 @@ class Texture {
   GLsizei height_;
 };
 
-GLuint NumTextureUnits();
-
-void BindTextureUnit(GLuint unit, GLuint texture);
-
-void BindTextureUnit(GLuint unit, const Texture &texture);
-
+/*!
+ * The OpenGL workspace.
+ * This is a global singleton.
+ */
 class Workspace {
  public:
+  // Get singleton instance.
   static Workspace &GetInstance();
+
+  // Cannot be moved.
+  Workspace(Workspace &&other) = delete;
+
+  // Cannot be copied.
+  Workspace(const Workspace &other) = delete;
+
+  // Cannot be assigned.
+  Workspace &operator=(const Workspace &other) = delete;
+
+  ~Workspace();
+
+  // Compile a fragment shader and create a program.
+  Program CreateProgram(const char *fragment_shader_src);
+
+  // Render to a texture.
+  void Render(const Program &program,
+              const std::vector<std::pair<std::string, Texture *>> &inputs,
+              Texture *output);
+
+  // Render to the main window.
+  // This is for debugging purposes.
+  void Render(const Program &program,
+              const std::vector<std::pair<std::string, Texture *>> &inputs);
+
  private:
+  friend class Texture;
+
   explicit Workspace();
+
+  GLuint NumTextureUnits();
+
+  void BindTextureUnit(GLuint unit, GLuint texture);
+
+  void BindTextureUnit(GLuint unit, const Texture &texture);
+
+  GLuint CreateShader(GLenum shader_kind, const char *shader_src);
+
+  Program CreateProgram(GLuint fragment_shader);
+
+  // Don't need to change this.
+  // We want to draw 2 giant triangles that cover the whole screen.
+  struct Vertex {
+    float x, y;
+  };
+
+  static constexpr size_t kNumVertices = 6;
+
+  static const Vertex vertices[kNumVertices];
+
+  static const char *vertex_shader_text_;
+
+ public:
+  GLFWwindow *window_;
+  GLuint vertex_shader_;
 };
 
 int main() {
-  std::cout << "Hello, World!!" << std::endl;
+  Workspace &workspace = Workspace::GetInstance();
 
+  GLint width, height;
+  glfwGetFramebufferSize(workspace.window_, &width, &height);
+
+  auto texture_size = static_cast<size_t>(width) * height;
+
+  std::random_device rd;
+  std::mt19937 mt(rd());
+  std::uniform_real_distribution<float> dist(0.0f, 1.0f);
+
+  std::vector<GLfloat> texture0_data(texture_size, 0.0f);
+  for (size_t i = 0; i != texture_size; ++i) {
+    texture0_data[i] = dist(mt);
+  }
+  auto texture0 = Texture(texture0_data.data(), width, height);
+
+  std::vector<GLfloat> texture1_data(texture_size, 0.0f);
+  for (size_t i = 0; i != texture_size; ++i) {
+    texture1_data[i] = dist(mt);
+  }
+  auto texture1 = Texture(texture1_data.data(), width, height);
+
+  {
+    Program program = workspace.CreateProgram(fragment_shader_text);
+
+    while (glfwWindowShouldClose(workspace.window_) == GL_FALSE) {
+      workspace.Render(
+          program, {
+              {"texture0", &texture0},
+              {"texture1", &texture1}
+          }
+      );
+      glfwSwapBuffers(workspace.window_);
+      glfwPollEvents();
+    }
+  }
+
+  {
+    Program program = workspace.CreateProgram(fragment_shader_text);
+
+    auto target_texture = Texture(nullptr, width, height);
+
+    workspace.Render(
+        program, {
+            {"texture0", &texture0},
+            {"texture1", &texture1}
+        },
+        &target_texture
+    );
+
+    std::vector<GLfloat> retrieved_data(static_cast<size_t>(width * height));
+    target_texture.GetData(retrieved_data.data());
+  }
+
+  {
+    Program program = workspace.CreateProgram(fragment_shader_text);
+
+    auto target_texture = Texture(nullptr, width, height);
+
+    workspace.Render(
+        program, {
+            {"texture0", &texture0},
+            {"texture1", &texture1}
+        },
+        &target_texture
+    );
+
+    std::vector<GLfloat> retrieved_data(static_cast<size_t>(width * height));
+    target_texture.GetData(retrieved_data.data());
+
+    std::cout << "wat" << std::endl;
+  }
+
+  return 0;
+}
+
+Program::Program(Program &&other) noexcept : program_(other.program_) {
+  other.program_ = kInvalidProgram;
+}
+
+Program::Program(GLuint program) : program_(program) {}
+
+Program::~Program() {
+  if (program_ != kInvalidProgram) {
+    glDeleteProgram(program_);
+    program_ = kInvalidProgram;
+  }
+}
+
+Texture::Texture(const GLfloat *data, GLsizei width, GLsizei height)
+    : texture_(kInvalidTexture), width_(width), height_(height) {
+  auto &workspace = Workspace::GetInstance();
+
+  // Create a texture.
+  OPENGL_CALL(glGenTextures(1, &texture_));
+
+  std::clog << "Created texture [" << texture_ << "]" << std::endl;
+
+  // Bind to temporary unit.
+  workspace.BindTextureUnit(workspace.NumTextureUnits() - 1, texture_);
+
+  // Similar to cudaMemcpy.
+  OPENGL_CALL(glTexImage2D(GL_TEXTURE_2D, /*level=*/0, GL_RED,
+                           width_, height_, /*border=*/0,
+                           GL_RED, GL_FLOAT, data));
+
+  // TODO(zhixunt): What are these?
+  OPENGL_CALL(
+      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE));
+  OPENGL_CALL(
+      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE));
+  OPENGL_CALL(
+      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST));
+  OPENGL_CALL(
+      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST));
+}
+
+Texture::Texture(Texture &&other) noexcept
+    : texture_(other.texture_), width_(other.width_), height_(other.height_) {
+  other.texture_ = kInvalidTexture;
+}
+
+Texture::~Texture() {
+  if (texture_ != kInvalidTexture) {
+    std::clog << "Deleting texture [" << texture_ << "]" << std::endl;
+    OPENGL_CALL(glDeleteTextures(1, &texture_));
+    texture_ = kInvalidTexture;
+  }
+}
+
+void Texture::GetData(GLfloat *data) const {
+  auto &workspace = Workspace::GetInstance();
+  workspace.BindTextureUnit(workspace.NumTextureUnits() - 1, texture_);
+
+  glGetTexImage(GL_TEXTURE_2D, /*level=*/0, GL_RED, GL_FLOAT, data);
+}
+
+GLuint Workspace::NumTextureUnits() {
+  GLint num_units;
+  OPENGL_CALL(glGetIntegerv(GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS, &num_units));
+  return static_cast<GLuint>(num_units);
+}
+
+// https://www.opengl.org/discussion_boards/showthread.php/174926-when-to-use-glActiveTexture
+// Consider the internal OpenGL texture system as this.
+//   struct TextureUnit {
+//     GLuint target_texture_1D;
+//     GLuint target_texture_2D;
+//     GLuint target_texture_3D;
+//     GLuint target_texture_cube;
+//     ...
+//   };
+//   TextureUnit texture_units[GL_MAX_TEXTURE_IMAGE_UNITS];
+//   GLuint curr_texture_unit; // global state!!!
+//
+// Then:
+//   "glActiveTexture(GL_TEXTURE0);"
+//     <=>
+//   "curr_texture_unit = 0;"
+//
+//   "glBindTexture(GL_TEXTURE_1D, texture0);"
+//     <=>
+//   "texture_units[curr_texture_unit].target_texture_1D = texture0;"
+void Workspace::BindTextureUnit(GLuint unit, GLuint texture) {
+  OPENGL_CALL(glActiveTexture(GL_TEXTURE0 + unit));
+  OPENGL_CALL(glBindTexture(GL_TEXTURE_2D, texture));
+}
+
+void Workspace::BindTextureUnit(GLuint unit, const Texture &texture) {
+  BindTextureUnit(unit, texture.texture());
+}
+
+Workspace &Workspace::GetInstance() {
+  static std::unique_ptr<Workspace> instance_(new Workspace);
+  return *instance_;
+}
+
+Workspace::Workspace() {
   // Set an error handler.
   // This can be called before glfwInit().
   glfwSetErrorCallback(&GlfwErrorCallback);
@@ -163,7 +395,7 @@ int main() {
   // Initialize GLFW.
   if (glfwInit() != GL_TRUE) {
     std::cout << "glfwInit() failed!" << std::endl;
-    return 1;
+    assert(false);
   }
 
   GLint width = 640;
@@ -176,34 +408,31 @@ int main() {
   glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
   glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
   glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-  GLFWwindow *window = glfwCreateWindow(width, height, "My Title", nullptr,
-                                        nullptr);
-  if (window == nullptr) {
+  window_ = glfwCreateWindow(width, height, "My Title", nullptr,
+                             nullptr);
+  if (window_ == nullptr) {
     std::cout << "glfwCreateWindow() failed!" << std::endl;
-    return 1;
+    assert(false);
   }
 
   std::cout << "GLFW says OpenGL version is "
-            << glfwGetWindowAttrib(window, GLFW_CONTEXT_VERSION_MAJOR)
+            << glfwGetWindowAttrib(window_, GLFW_CONTEXT_VERSION_MAJOR)
             << "."
-            << glfwGetWindowAttrib(window, GLFW_CONTEXT_VERSION_MINOR)
+            << glfwGetWindowAttrib(window_, GLFW_CONTEXT_VERSION_MINOR)
             << "."
-            << glfwGetWindowAttrib(window, GLFW_CONTEXT_REVISION)
+            << glfwGetWindowAttrib(window_, GLFW_CONTEXT_REVISION)
             << std::endl;
 
   // Before using any OpenGL API, we must specify a context.
-  glfwMakeContextCurrent(window);
+  glfwMakeContextCurrent(window_);
 
-  // Must be called after
+  // Must be called after creating GLFW window.
   gladLoadGL();
+
   std::cout << "Opengl says its version is "
             << glGetString(GL_VERSION) << std::endl;
 
   OPENGL_CHECK_ERROR();
-
-  GLuint program = CreateProgram(vertex_shader_text, fragment_shader_text);
-
-  OPENGL_CALL(glUseProgram(program));
 
   GLuint vertex_buffer;
   OPENGL_CALL(glGenBuffers(1, &vertex_buffer));
@@ -214,97 +443,109 @@ int main() {
   GLuint vertex_array;
   OPENGL_CALL(glGenVertexArrays(1, &vertex_array));
   OPENGL_CALL(glBindVertexArray(vertex_array));
-
-  auto point_attrib = static_cast<GLuint>(
-      glGetAttribLocation(program, "point"));
-  OPENGL_CALL(glEnableVertexAttribArray(point_attrib));
   glBindBuffer(GL_ARRAY_BUFFER, vertex_buffer);
-  OPENGL_CALL(
-      glVertexAttribPointer(point_attrib, 2, GL_FLOAT, GL_FALSE, sizeof(Vertex),
-                            nullptr));
 
-  glfwGetFramebufferSize(window, &width, &height);
-  auto width_uniform = glGetUniformLocation(program, "width");
-  auto height_uniform = glGetUniformLocation(program, "height");
-  OPENGL_CALL(glUniform1i(width_uniform, width));
-  OPENGL_CALL(glUniform1i(height_uniform, height));
-  OPENGL_CALL(glViewport(0, 0, width, height));
+  vertex_shader_ = CreateShader(GL_VERTEX_SHADER, vertex_shader_text_);
+}
 
-  auto texture_size = static_cast<size_t>(width) * height;
-
-  std::vector<GLfloat> texture0_data(texture_size, 0.25f);
-  auto texture0 = Texture(texture0_data.data(), width, height);
-
-  std::vector<GLfloat> texture1_data(texture_size, 0.25f);
-  auto texture1 = Texture(texture1_data.data(),width, height);
-
-  BindTextureUnit(0, texture0);
-  GLint texture0_uniform = glGetUniformLocation(program, "texture0");
-  OPENGL_CALL(glUniform1i(texture0_uniform, 0));
-
-  BindTextureUnit(1, texture1);
-  GLint texture1_uniform = glGetUniformLocation(program, "texture1");
-  OPENGL_CALL(glUniform1i(texture1_uniform, 1));
-
-  while (glfwWindowShouldClose(window) == GL_FALSE) {
-    glClear(GL_COLOR_BUFFER_BIT);
-    OPENGL_CALL(glDrawArrays(GL_TRIANGLES, 0, 6));
-    glfwSwapBuffers(window);
-    glfwPollEvents();
-  }
-
-  {
-    // Create frame buffer.
-    GLuint frame_buffer = 0;
-    OPENGL_CALL(glGenFramebuffers(1, &frame_buffer));
-    OPENGL_CALL(glBindFramebuffer(GL_FRAMEBUFFER, frame_buffer));
-
-    auto target_tex = Texture(nullptr, width, height);
-
-    // The depth buffer
-    GLuint depthrenderbuffer;
-    OPENGL_CALL(glGenRenderbuffers(1, &depthrenderbuffer));
-    OPENGL_CALL(glBindRenderbuffer(GL_RENDERBUFFER, depthrenderbuffer));
-    OPENGL_CALL(
-        glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT, width,
-                              height));
-    OPENGL_CALL(glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,
-                                          GL_RENDERBUFFER, depthrenderbuffer));
-
-    // Set "renderedTexture" as our colour attachement #0
-    OPENGL_CALL(glFramebufferTexture(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
-                                     target_tex.texture(), 0));
-
-    // Set the list of draw buffers.
-    GLenum DrawBuffers[1] = {GL_COLOR_ATTACHMENT0};
-    OPENGL_CALL(
-        glDrawBuffers(1, DrawBuffers)); // "1" is the size of DrawBuffers
-
-    // Always check that our framebuffer is ok
-    if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
-      return false;
-
-    // Render to our framebuffer
-    // Render on the whole framebuffer, complete from the lower left corner to the upper right
-    OPENGL_CALL(glBindFramebuffer(GL_FRAMEBUFFER, frame_buffer));
-    OPENGL_CALL(glViewport(0, 0, width, height));
-
-    OPENGL_CALL(glClear(GL_COLOR_BUFFER_BIT));
-    OPENGL_CALL(glDrawArrays(GL_TRIANGLES, 0, 6));
-
-    std::vector<GLfloat> retrieved_data(static_cast<size_t>(width * height));
-    target_tex.GetData(retrieved_data.data());
-
-    std::cout << "Wat" << std::endl;
-  }
-
+Workspace::~Workspace() {
   // Paired with glfwCreateWindow().
-  glfwDestroyWindow(window);
+  glfwDestroyWindow(window_);
 
   // Paired with glfwInit().
   glfwTerminate();
+}
 
-  return 0;
+/*!
+ * \brief Create a program that uses the given vertex and fragment shader.
+ * \param fragment_shader The fragment shader **source**.
+ * \return The program ID.
+ */
+Program Workspace::CreateProgram(const char *fragment_shader_src) {
+  // Create and compile the shaders.
+  GLuint fragment_shader = CreateShader(GL_FRAGMENT_SHADER,
+                                        fragment_shader_src);
+
+  // Link the shaders and create the program.
+  Program program = CreateProgram(fragment_shader);
+
+  OPENGL_CALL(glDeleteShader(fragment_shader));
+
+  return program;
+}
+
+void Workspace::Render(
+    const Program &program,
+    const std::vector<std::pair<std::string, Texture *>> &inputs,
+    Texture *output) {
+  if (inputs.size() + 2 > NumTextureUnits()) {
+    std::cerr << "Too many inputs!" << std::endl;
+    assert(false);
+  }
+
+  OPENGL_CALL(glUseProgram(program.program_));
+
+  // Create frame buffer.
+  GLuint frame_buffer;
+  OPENGL_CALL(glGenFramebuffers(1, &frame_buffer));
+  OPENGL_CALL(glBindFramebuffer(GL_FRAMEBUFFER, frame_buffer));
+
+  // Set "renderedTexture" as our colour attachement #0
+  OPENGL_CALL(glFramebufferTexture(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+                                   output->texture(), 0));
+
+  // Set the list of draw buffers.
+  GLenum DrawBuffers[1] = {GL_COLOR_ATTACHMENT0};
+  // "1" is the size of DrawBuffers.
+  OPENGL_CALL(glDrawBuffers(1, DrawBuffers));
+
+  // Always check that our framebuffer is ok
+  if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
+    std::cout << "Framebuffer not complete." << std::endl;
+    assert(false);
+  }
+
+  OPENGL_CALL(glBindFramebuffer(GL_FRAMEBUFFER, frame_buffer));
+  OPENGL_CALL(glViewport(0, 0, output->width(), output->height()));
+
+  OPENGL_CALL(glClear(GL_COLOR_BUFFER_BIT));
+  OPENGL_CALL(glDrawArrays(GL_TRIANGLES, 0, 6));
+
+  glDeleteFramebuffers(1, &frame_buffer);
+}
+
+void Workspace::Render(
+    const Program &program,
+    const std::vector<std::pair<std::string, Texture *>> &inputs) {
+  if (inputs.size() + 1 > NumTextureUnits()) {
+    std::cerr << "Too many inputs!" << std::endl;
+    assert(false);
+  }
+
+  OPENGL_CALL(glUseProgram(program.program_));
+
+  // Tell the fragment shader what input textures to use.
+  for (GLuint unit = 0; unit != inputs.size(); ++unit) {
+    const std::string &name = inputs[unit].first;
+    Texture *texture = inputs[unit].second;
+
+    BindTextureUnit(unit, *texture);
+
+    GLint texture_uniform = glGetUniformLocation(program.program_,
+                                                 name.c_str());
+    OPENGL_CALL(glUniform1i(texture_uniform, unit));
+  }
+
+  // Framebuffer 0 means the window.
+  OPENGL_CALL(glBindFramebuffer(GL_FRAMEBUFFER, 0));
+
+  // FIll the entire window.
+  GLint width, height;
+  glfwGetFramebufferSize(window_, &width, &height);
+  OPENGL_CALL(glViewport(0, 0, width, height));
+
+  OPENGL_CALL(glClear(GL_COLOR_BUFFER_BIT));
+  OPENGL_CALL(glDrawArrays(GL_TRIANGLES, 0, 6));
 }
 
 /*!
@@ -314,7 +555,7 @@ int main() {
  * \param shader_src The source string of the shader.
  * \return The compiled shader ID.
  */
-GLuint CreateShader(GLenum shader_kind, const char *shader_src) {
+GLuint Workspace::CreateShader(GLenum shader_kind, const char *shader_src) {
   // Create the shader.
   GLuint shader = glCreateShader(shader_kind);
   glShaderSource(shader, 1, &shader_src, nullptr);
@@ -341,14 +582,13 @@ GLuint CreateShader(GLenum shader_kind, const char *shader_src) {
 
 /*!
  * \brief Create a program that uses the given vertex and fragment shaders.
- * \param vertex_shader The **compiled** vertex shader.
  * \param fragment_shader The **compiled** fragment shader.
  * \return The program ID.
  */
-GLuint CreateProgram(GLuint vertex_shader, GLuint fragment_shader) {
+Program Workspace::CreateProgram(GLuint fragment_shader) {
   // Create the program and link the shaders.
   GLuint program = glCreateProgram();
-  glAttachShader(program, vertex_shader);
+  glAttachShader(program, vertex_shader_);
   glAttachShader(program, fragment_shader);
   glLinkProgram(program);
 
@@ -368,114 +608,32 @@ GLuint CreateProgram(GLuint vertex_shader, GLuint fragment_shader) {
 
   OPENGL_CHECK_ERROR();
 
-  OPENGL_CALL(glDetachShader(program, vertex_shader));
+  OPENGL_CALL(glDetachShader(program, vertex_shader_));
   OPENGL_CALL(glDetachShader(program, fragment_shader));
 
-  return program;
+  auto point_attrib = GLuint(glGetAttribLocation(program, "point"));
+  OPENGL_CALL(glEnableVertexAttribArray(point_attrib));
+
+  OPENGL_CALL(glVertexAttribPointer(point_attrib, 2, GL_FLOAT, GL_FALSE,
+                                    sizeof(Vertex), nullptr));
+
+  return Program(program);
 }
 
-/*!
- * \brief Create a program that uses the given vertex and fragment shader.
- * \param vertex_shader The vertex shader **source**.
- * \param fragment_shader The fragment shader **source**.
- * \return The program ID.
- */
-GLuint CreateProgram(const char *vertex_shader, const char *fragment_shader) {
-  // Create and compile the shaders.
-  GLuint vertex_shader_id = CreateShader(GL_VERTEX_SHADER, vertex_shader);
-  GLuint fragment_shader_id = CreateShader(GL_FRAGMENT_SHADER, fragment_shader);
+// Don't need to change this.
+// The vertex shader only needs to take in the triangle points.
+// No need for point transformations.
+const char *Workspace::vertex_shader_text_ = "#version 330 core\n"
+    "in vec2 point; // input to vertex shader\n"
+    "void main() {\n"
+    "  gl_Position = vec4(point, 0.0, 1.0);\n"
+    "}\n";
 
-  // Link the shaders and create the program.
-  GLuint program = CreateProgram(vertex_shader_id, fragment_shader_id);
-
-  OPENGL_CALL(glDeleteShader(vertex_shader_id));
-  OPENGL_CALL(glDeleteShader(fragment_shader_id));
-
-  return program;
-}
-
-Texture::Texture(const GLfloat *data, GLsizei width, GLsizei height)
-    : texture_(kInvalidTexture), width_(width), height_(height) {
-
-  // Create a texture.
-  OPENGL_CALL(glGenTextures(1, &texture_));
-
-  // Bind to temporary unit.
-  BindTextureUnit(NumTextureUnits() - 1, texture_);
-
-  // Similar to cudaMemcpy.
-  OPENGL_CALL(glTexImage2D(GL_TEXTURE_2D, /*level=*/0, GL_RED,
-                           width_, height_, /*border=*/0,
-                           GL_RED, GL_FLOAT, data));
-
-  // TODO(zhixunt): What are these?
-  OPENGL_CALL(
-      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE));
-  OPENGL_CALL(
-      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE));
-  OPENGL_CALL(
-      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST));
-  OPENGL_CALL(
-      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST));
-}
-
-Texture::Texture(Texture &&other) noexcept
-    : texture_(other.texture_), width_(other.width_), height_(other.height_) {
-  other.texture_ = kInvalidTexture;
-}
-
-Texture::~Texture() {
-  if (texture_ != kInvalidTexture) {
-    glDeleteTextures(1, &texture_);
-    texture_ = kInvalidTexture;
-  }
-}
-
-void Texture::GetData(GLfloat *data) const {
-  BindTextureUnit(NumTextureUnits() - 1, *this);
-  glGetTexImage(GL_TEXTURE_2D, /*level=*/0, GL_RED, GL_FLOAT, data);
-}
-
-GLuint NumTextureUnits() {
-  GLint num_units;
-  OPENGL_CALL(glGetIntegerv(GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS, &num_units));
-  return static_cast<GLuint>(num_units);
-}
-
-// https://www.opengl.org/discussion_boards/showthread.php/174926-when-to-use-glActiveTexture
-// Consider the internal OpenGL texture system as this.
-//   struct TextureUnit {
-//     GLuint target_texture_1D;
-//     GLuint target_texture_2D;
-//     GLuint target_texture_3D;
-//     GLuint target_texture_cube;
-//     ...
-//   };
-//   TextureUnit texture_units[GL_MAX_TEXTURE_IMAGE_UNITS];
-//   GLuint curr_texture_unit; // global state!!!
-//
-// Then:
-//   "glActiveTexture(GL_TEXTURE0);"
-//     <=>
-//   "curr_texture_unit = 0;"
-//
-//   "glBindTexture(GL_TEXTURE_1D, texture0);"
-//     <=>
-//   "texture_units[curr_texture_unit].target_texture_1D = texture0;"
-void BindTextureUnit(GLuint unit, GLuint texture) {
-  OPENGL_CALL(glActiveTexture(GL_TEXTURE0 + unit));
-  OPENGL_CALL(glBindTexture(GL_TEXTURE_2D, texture));
-}
-
-void BindTextureUnit(GLuint unit, const Texture &texture) {
-  BindTextureUnit(unit, texture.texture());
-}
-
-Workspace &Workspace::GetInstance() {
-  static std::unique_ptr<Workspace> instance_(new Workspace);
-  return *instance_;
-}
-
-Workspace::Workspace() {
-
-}
+const Workspace::Vertex Workspace::vertices[kNumVertices] = {
+    {-1.f, -1.f},
+    {1.0f, -1.f},
+    {1.0f, 1.0f},
+    {-1.f, -1.f},
+    {-1.f, 1.0f},
+    {1.0f, 1.0f},
+};
