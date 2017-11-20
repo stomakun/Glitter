@@ -182,6 +182,10 @@ class Workspace {
   void Render(const Program &program,
               const std::vector<std::pair<std::string, Texture *>> &inputs);
 
+  static const int kWindowWidth = 640;
+
+  static const int kWindowHeight = 480;
+
  private:
   friend class Texture;
 
@@ -214,7 +218,7 @@ class Workspace {
   GLuint vertex_shader_;
 };
 
-int main() {
+void TestRenderToWindow() {
   Workspace &workspace = Workspace::GetInstance();
 
   GLint width, height;
@@ -222,9 +226,36 @@ int main() {
 
   auto texture_size = static_cast<size_t>(width) * height;
 
+  std::vector<GLfloat> texture0_data(texture_size, 0.25f);
+  auto texture0 = workspace.CreateTexture(texture0_data.data(), width, height);
+
+  std::vector<GLfloat> texture1_data(texture_size, 0.25f);
+  auto texture1 = workspace.CreateTexture(texture1_data.data(), width, height);
+
+  Program program = workspace.CreateProgram(fragment_shader_text);
+
+  while (glfwWindowShouldClose(workspace.window_) == GL_FALSE) {
+    workspace.Render(
+        program, {
+            {"texture0", &texture0},
+            {"texture1", &texture1}
+        }
+    );
+    glfwSwapBuffers(workspace.window_);
+    glfwPollEvents();
+  }
+}
+
+void TestRenderToTexture() {
+  Workspace &workspace = Workspace::GetInstance();
+
   std::random_device rd;
   std::mt19937 mt(rd());
   std::uniform_real_distribution<float> dist(1.0f, 2.0f);
+
+  GLint width = 25;
+  GLint height = 1;
+  auto texture_size = static_cast<size_t>(width) * height;
 
   std::vector<GLfloat> texture0_data(texture_size, 0.0f);
   for (size_t i = 0; i != texture_size; ++i) {
@@ -238,56 +269,34 @@ int main() {
   }
   auto texture1 = workspace.CreateTexture(texture1_data.data(), width, height);
 
-  {
-    Program program = workspace.CreateProgram(fragment_shader_text);
+  Program program = workspace.CreateProgram(fragment_shader_text);
 
-    while (glfwWindowShouldClose(workspace.window_) == GL_FALSE) {
-      workspace.Render(
-          program, {
-              {"texture0", &texture0},
-              {"texture1", &texture1}
-          }
-      );
-      glfwSwapBuffers(workspace.window_);
-      glfwPollEvents();
-    }
+  auto target_texture = workspace.CreateTexture(nullptr, width, height);
+
+  workspace.Render(
+      program, {
+          {"texture0", &texture0},
+          {"texture1", &texture1}
+      },
+      &target_texture
+  );
+
+  std::vector<GLfloat> retrieved_data(static_cast<size_t>(width * height));
+  target_texture.GetData(retrieved_data.data());
+
+  for (size_t i = 0; i != texture_size; ++i) {
+    std::cout << texture0_data[i] << " + " << texture1_data[i] << " = "
+              << retrieved_data[i] << ", expected "
+              << (texture0_data[i] + texture1_data[i]) << std::endl;
   }
+}
 
-  {
-    Program program = workspace.CreateProgram(fragment_shader_text);
+int main() {
+  Workspace &workspace = Workspace::GetInstance();
 
-    auto target_texture = workspace.CreateTexture(nullptr, width, height);
+  TestRenderToWindow();
 
-    workspace.Render(
-        program, {
-            {"texture0", &texture0},
-            {"texture1", &texture1}
-        },
-        &target_texture
-    );
-
-    std::vector<GLfloat> retrieved_data(static_cast<size_t>(width * height));
-    target_texture.GetData(retrieved_data.data());
-  }
-
-  {
-    Program program = workspace.CreateProgram(fragment_shader_text);
-
-    auto target_texture = workspace.CreateTexture(nullptr, width, height);
-
-    workspace.Render(
-        program, {
-            {"texture0", &texture0},
-            {"texture1", &texture1}
-        },
-        &target_texture
-    );
-
-    std::vector<GLfloat> retrieved_data(static_cast<size_t>(width * height));
-    target_texture.GetData(retrieved_data.data());
-
-    std::cout << "wat" << std::endl;
-  }
+  TestRenderToTexture();
 
   return 0;
 }
@@ -404,9 +413,6 @@ Workspace::Workspace() {
     assert(false);
   }
 
-  GLint width = 25;
-  GLint height = 1;
-
   // Create a window.
   // TODO(zhixunt): GLFW allows us to create an invisible window.
   // TODO(zhixunt): On retina display, window size is different from framebuffer size.
@@ -414,14 +420,13 @@ Workspace::Workspace() {
   glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
   glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
   glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-  window_ = glfwCreateWindow(width, height, "My Title", nullptr,
-                             nullptr);
+  window_ = glfwCreateWindow(kWindowWidth, kWindowHeight, "", nullptr, nullptr);
   if (window_ == nullptr) {
     std::cout << "glfwCreateWindow() failed!" << std::endl;
     assert(false);
   }
 
-  std::cout << "GLFW says OpenGL version is "
+  std::cout << "GLFW says OpenGL version: "
             << glfwGetWindowAttrib(window_, GLFW_CONTEXT_VERSION_MAJOR)
             << "."
             << glfwGetWindowAttrib(window_, GLFW_CONTEXT_VERSION_MINOR)
@@ -435,11 +440,11 @@ Workspace::Workspace() {
   // Must be called after creating GLFW window.
   gladLoadGL();
 
-  std::cout << "Opengl says its version is "
-            << glGetString(GL_VERSION) << std::endl;
+  std::cout << "Opengl says version: " << glGetString(GL_VERSION) << std::endl;
 
   OPENGL_CHECK_ERROR();
 
+  // We always render the same vertices and triangles.
   GLuint vertex_buffer;
   OPENGL_CALL(glGenBuffers(1, &vertex_buffer));
   OPENGL_CALL(glBindBuffer(GL_ARRAY_BUFFER, vertex_buffer));
@@ -451,6 +456,7 @@ Workspace::Workspace() {
   OPENGL_CALL(glBindVertexArray(vertex_array));
   glBindBuffer(GL_ARRAY_BUFFER, vertex_buffer);
 
+  // We always use the same vertex shader.
   vertex_shader_ = CreateShader(GL_VERTEX_SHADER, vertex_shader_text_);
 }
 
