@@ -12,11 +12,11 @@ add_subdirectory(Glitter/Vendor/glfw)
 #add_subdirectory(Glitter/Vendor/assimp)
 
 #option(BUILD_BULLET2_DEMOS OFF)
-option(BUILD_CPU_DEMOS OFF)
-option(BUILD_EXTRAS OFF)
-option(BUILD_OPENGL3_DEMOS OFF)
-option(BUILD_UNIT_TESTS OFF)
-add_subdirectory(Glitter/Vendor/bullet)
+#option(BUILD_CPU_DEMOS OFF)
+#option(BUILD_EXTRAS OFF)
+#option(BUILD_OPENGL3_DEMOS OFF)
+#option(BUILD_UNIT_TESTS OFF)
+#add_subdirectory(Glitter/Vendor/bullet)
 
 if(MSVC)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /W4")
@@ -65,6 +65,7 @@ target_link_libraries(${PROJECT_NAME}
                       ${GLAD_LIBRARIES}
 #                      BulletDynamics
 #                      BulletCollision
-                      LinearMath)
+#                      LinearMath
+                      )
 set_target_properties(${PROJECT_NAME} PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/${PROJECT_NAME})
