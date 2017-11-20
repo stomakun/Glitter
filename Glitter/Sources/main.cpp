@@ -117,8 +117,6 @@ class Program {
  */
 class Texture {
  public:
-  explicit Texture(const GLfloat *data, GLsizei width, GLsizei height);
-
   ~Texture();
 
   Texture(Texture &&other) noexcept;
@@ -127,8 +125,6 @@ class Texture {
 
   Texture &operator=(const Texture &other) = delete;
 
-  GLuint texture() const { return texture_; }
-
   GLsizei width() const { return width_; }
 
   GLsizei height() const { return height_; }
@@ -136,6 +132,12 @@ class Texture {
   void GetData(GLfloat *data) const;
 
  private:
+  friend class Workspace;
+
+  explicit Texture(const GLfloat *data, GLsizei width, GLsizei height);
+
+  GLuint texture() const { return texture_; }
+
   static const GLuint kInvalidTexture = static_cast<GLuint>(-1);
 
   GLuint texture_;
@@ -165,6 +167,9 @@ class Workspace {
 
   // Compile a fragment shader and create a program.
   Program CreateProgram(const char *fragment_shader_src);
+
+  // Create a texture with the given data.
+  Texture CreateTexture(const GLfloat *data, GLsizei width, GLsizei height);
 
   // Render to a texture.
   void Render(const Program &program,
@@ -224,13 +229,13 @@ int main() {
   for (size_t i = 0; i != texture_size; ++i) {
     texture0_data[i] = dist(mt);
   }
-  auto texture0 = Texture(texture0_data.data(), width, height);
+  auto texture0 = workspace.CreateTexture(texture0_data.data(), width, height);
 
   std::vector<GLfloat> texture1_data(texture_size, 0.0f);
   for (size_t i = 0; i != texture_size; ++i) {
     texture1_data[i] = dist(mt);
   }
-  auto texture1 = Texture(texture1_data.data(), width, height);
+  auto texture1 = workspace.CreateTexture(texture1_data.data(), width, height);
 
   {
     Program program = workspace.CreateProgram(fragment_shader_text);
@@ -250,7 +255,7 @@ int main() {
   {
     Program program = workspace.CreateProgram(fragment_shader_text);
 
-    auto target_texture = Texture(nullptr, width, height);
+    auto target_texture = workspace.CreateTexture(nullptr, width, height);
 
     workspace.Render(
         program, {
@@ -267,7 +272,7 @@ int main() {
   {
     Program program = workspace.CreateProgram(fragment_shader_text);
 
-    auto target_texture = Texture(nullptr, width, height);
+    auto target_texture = workspace.CreateTexture(nullptr, width, height);
 
     workspace.Render(
         program, {
@@ -618,6 +623,11 @@ Program Workspace::CreateProgram(GLuint fragment_shader) {
                                     sizeof(Vertex), nullptr));
 
   return Program(program);
+}
+
+Texture Workspace::CreateTexture(const GLfloat *data, GLsizei width,
+                                 GLsizei height) {
+  return Texture(data, width, height);
 }
 
 // Don't need to change this.
