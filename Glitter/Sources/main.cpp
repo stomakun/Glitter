@@ -3,7 +3,6 @@
 
 #include <cassert>
 #include <iostream>
-#include <memory>
 #include <vector>
 #include <random>
 
@@ -31,10 +30,6 @@ inline const char *GLGetErrorString(GLenum error) {
 }
 
 }  // namespace gl
-
-void OPENGL_ABSORB_ERRORS() {
-  while (glGetError() != GL_NO_ERROR);
-}
 
 // TODO(zhixunt): When porting to TVM, change this to
 //   CHECK(err == GL_NO_ERROR) << ...;
@@ -177,11 +172,6 @@ class Workspace {
               const std::vector<std::pair<std::string, Texture *>> &inputs,
               Texture *output);
 
-  // Render to the main window.
-  // This is for debugging purposes.
-  void Render(const Program &program,
-              const std::vector<std::pair<std::string, Texture *>> &inputs);
-
   static const int kWindowWidth = 640;
 
   static const int kWindowHeight = 480;
@@ -217,34 +207,6 @@ class Workspace {
   GLFWwindow *window_;
   GLuint vertex_shader_;
 };
-
-void TestRenderToWindow() {
-  Workspace &workspace = Workspace::GetInstance();
-
-  GLint width, height;
-  glfwGetFramebufferSize(workspace.window_, &width, &height);
-
-  auto texture_size = static_cast<size_t>(width) * height;
-
-  std::vector<GLfloat> texture0_data(texture_size, 0.25f);
-  auto texture0 = workspace.CreateTexture(texture0_data.data(), width, height);
-
-  std::vector<GLfloat> texture1_data(texture_size, 0.25f);
-  auto texture1 = workspace.CreateTexture(texture1_data.data(), width, height);
-
-  Program program = workspace.CreateProgram(fragment_shader_text);
-
-  while (glfwWindowShouldClose(workspace.window_) == GL_FALSE) {
-    workspace.Render(
-        program, {
-            {"texture0", &texture0},
-            {"texture1", &texture1}
-        }
-    );
-    glfwSwapBuffers(workspace.window_);
-    glfwPollEvents();
-  }
-}
 
 void TestRenderToTexture() {
   Workspace &workspace = Workspace::GetInstance();
@@ -292,10 +254,6 @@ void TestRenderToTexture() {
 }
 
 int main() {
-  Workspace &workspace = Workspace::GetInstance();
-
-  TestRenderToWindow();
-
   TestRenderToTexture();
 
   return 0;
@@ -368,26 +326,6 @@ GLuint Workspace::NumTextureUnits() {
   return static_cast<GLuint>(num_units);
 }
 
-// https://www.opengl.org/discussion_boards/showthread.php/174926-when-to-use-glActiveTexture
-// Consider the internal OpenGL texture system as this.
-//   struct TextureUnit {
-//     GLuint target_texture_1D;
-//     GLuint target_texture_2D;
-//     GLuint target_texture_3D;
-//     GLuint target_texture_cube;
-//     ...
-//   };
-//   TextureUnit texture_units[GL_MAX_TEXTURE_IMAGE_UNITS];
-//   GLuint curr_texture_unit; // global state!!!
-//
-// Then:
-//   "glActiveTexture(GL_TEXTURE0);"
-//     <=>
-//   "curr_texture_unit = 0;"
-//
-//   "glBindTexture(GL_TEXTURE_1D, texture0);"
-//     <=>
-//   "texture_units[curr_texture_unit].target_texture_1D = texture0;"
 void Workspace::BindTextureUnit(GLuint unit, GLuint texture) {
   OPENGL_CALL(glActiveTexture(GL_TEXTURE0 + unit));
   OPENGL_CALL(glBindTexture(GL_TEXTURE_2D, texture));
@@ -536,40 +474,6 @@ void Workspace::Render(
   OPENGL_CALL(glDrawArrays(GL_TRIANGLES, 0, 6));
 
   glDeleteFramebuffers(1, &frame_buffer);
-}
-
-void Workspace::Render(
-    const Program &program,
-    const std::vector<std::pair<std::string, Texture *>> &inputs) {
-  if (inputs.size() + 1 > NumTextureUnits()) {
-    std::cerr << "Too many inputs!" << std::endl;
-    assert(false);
-  }
-
-  OPENGL_CALL(glUseProgram(program.program_));
-
-  // Tell the fragment shader what input textures to use.
-  for (GLuint unit = 0; unit != inputs.size(); ++unit) {
-    const std::string &name = inputs[unit].first;
-    Texture *texture = inputs[unit].second;
-
-    BindTextureUnit(unit, *texture);
-
-    GLint texture_uniform = glGetUniformLocation(program.program_,
-                                                 name.c_str());
-    OPENGL_CALL(glUniform1i(texture_uniform, unit));
-  }
-
-  // Framebuffer 0 means the window.
-  OPENGL_CALL(glBindFramebuffer(GL_FRAMEBUFFER, 0));
-
-  // FIll the entire window.
-  GLint width, height;
-  glfwGetFramebufferSize(window_, &width, &height);
-  OPENGL_CALL(glViewport(0, 0, width, height));
-
-  OPENGL_CALL(glClear(GL_COLOR_BUFFER_BIT));
-  OPENGL_CALL(glDrawArrays(GL_TRIANGLES, 0, 6));
 }
 
 /*!
