@@ -2,6 +2,7 @@
 #include <GLFW/glfw3.h>
 
 #include <cassert>
+#include <chrono>
 #include <iostream>
 #include <memory>
 #include <vector>
@@ -63,19 +64,21 @@ void GlfwErrorCallback(int err, const char *str) {
 
 // This is the main part.
 static const char *fragment_shader_text = "#version 330 core\n"
-    "uniform sampler2D texture0;\n"
-    "uniform sampler2D texture1;\n"
-    "out vec4 color;\n"
+    "uniform sampler2D A;\n"
+    "uniform sampler2D B;\n"
+    "uniform int N;\n"
+    "out float color;\n"
     "void main() {\n"
     "  ivec2 pixel = ivec2(gl_FragCoord.xy);\n"
-    "  float input0 = texelFetch(texture0, pixel, 0).r;\n"
-    "  float input1 = texelFetch(texture1, pixel, 0).r;\n"
-    "  color = vec4(\n"
-    "    input0 + input1,\n"
-    "    0.0,\n"
-    "    0.0,\n"
-    "    1.0\n"
-    "  );\n"
+    "  int idx = pixel.x;\n"
+    "  int row = idx / N;\n"
+    "  int col = idx % N;\n"
+    "  color = 0.0;\n"
+    "  for (int i = 0; i < N; i++) {\n"
+    "    float a = texelFetch(A, ivec2(row * N + i, 0), 0).r;\n"
+    "    float b = texelFetch(B, ivec2(i * N + col, 0), 0).r;\n"
+    "    color += a * b;\n"
+    "  }\n"
     "}\n";
 
 /*!
@@ -175,7 +178,9 @@ class Workspace {
   // Render to a texture.
   void Render(const Program &program,
               const std::vector<std::pair<std::string, Texture *>> &inputs,
-              Texture *output);
+              const std::vector<std::pair<std::string, int>> &uniforms,
+              Texture *output,
+              int niters);
 
   // Render to the main window.
   // This is for debugging purposes.
@@ -246,14 +251,14 @@ void TestRenderToWindow() {
   }
 }
 
-void TestRenderToTexture() {
+void TestRenderToTexture(int N, int niters) {
   Workspace &workspace = Workspace::GetInstance();
 
   std::random_device rd;
   std::mt19937 mt(rd());
   std::uniform_real_distribution<float> dist(1.0f, 2.0f);
 
-  GLint width = 25;
+  GLint width = N * N;
   GLint height = 1;
   auto texture_size = static_cast<size_t>(width) * height;
 
@@ -275,28 +280,47 @@ void TestRenderToTexture() {
 
   workspace.Render(
       program, {
-          {"texture0", &texture0},
-          {"texture1", &texture1}
+          {"A", &texture0},
+          {"B", &texture1}
+      }, {
+          {"N", N}
       },
-      &target_texture
+      &target_texture,
+      niters
   );
 
   std::vector<GLfloat> retrieved_data(static_cast<size_t>(width * height));
   target_texture.GetData(retrieved_data.data());
 
-  for (size_t i = 0; i != texture_size; ++i) {
-    std::cout << texture0_data[i] << " + " << texture1_data[i] << " = "
-              << retrieved_data[i] << ", expected "
-              << (texture0_data[i] + texture1_data[i]) << std::endl;
+  std::vector<GLfloat> cpu_result(static_cast<size_t>(width * height));
+  auto cpu_start = std::chrono::system_clock::now();
+  for (int iter = 0; iter < niters; ++iter) {
+    for (int row = 0; row != N; ++row) {
+      for (int col = 0; col != N; ++col) {
+        cpu_result[row * N + col] = 0.0f;
+        for (int i = 0; i != N; ++i) {
+          GLfloat a = texture0_data[row * N + i];
+          GLfloat b = texture1_data[i * N + col];
+          cpu_result[row * N + col] += a * b;
+        }
+      }
+    }
   }
+  auto cpu_end = std::chrono::system_clock::now();
+
+  for (int i = 0; i < retrieved_data.size(); ++i) {
+    assert(std::abs(retrieved_data[i] - cpu_result[i]) < 0.001f);
+  }
+
+  std::cout << "cpu:    "
+            << ((cpu_end - cpu_start).count() / niters)
+            << std::endl;
 }
 
 int main() {
   Workspace &workspace = Workspace::GetInstance();
 
-  TestRenderToWindow();
-
-  TestRenderToTexture();
+  TestRenderToTexture(50, /*niters=*/100);
 
   return 0;
 }
@@ -327,7 +351,7 @@ Texture::Texture(const GLfloat *data, GLsizei width, GLsizei height)
   workspace.BindTextureUnit(workspace.NumTextureUnits() - 1, texture_);
 
   // Similar to cudaMemcpy.
-  OPENGL_CALL(glTexImage2D(GL_TEXTURE_2D, /*level=*/0, GL_R32F,
+  OPENGL_CALL(glTexImage2D(GL_TEXTURE_2D, /*level=*/0, GL_RGBA32F,
                            width_, height_, /*border=*/0,
                            GL_RED, GL_FLOAT, data));
 
@@ -489,7 +513,9 @@ Program Workspace::CreateProgram(const char *fragment_shader_src) {
 void Workspace::Render(
     const Program &program,
     const std::vector<std::pair<std::string, Texture *>> &inputs,
-    Texture *output) {
+    const std::vector<std::pair<std::string, int>> &uniforms,
+    Texture *output,
+    int niters) {
   if (inputs.size() + 2 > NumTextureUnits()) {
     std::cerr << "Too many inputs!" << std::endl;
     assert(false);
@@ -529,13 +555,30 @@ void Workspace::Render(
     OPENGL_CALL(glUniform1i(texture_uniform, unit));
   }
 
+  // Tell the fragment shader about uniforms.
+  for (auto &uniform : uniforms) {
+    const std::string &name = uniform.first;
+    int value = uniform.second;
+    GLint shader_uniform = glGetUniformLocation(program.program_, name.c_str());
+    OPENGL_CALL(glUniform1i(shader_uniform, value));
+  }
+
   OPENGL_CALL(glBindFramebuffer(GL_FRAMEBUFFER, frame_buffer));
   OPENGL_CALL(glViewport(0, 0, output->width(), output->height()));
 
-  OPENGL_CALL(glClear(GL_COLOR_BUFFER_BIT));
-  OPENGL_CALL(glDrawArrays(GL_TRIANGLES, 0, 6));
+  auto opengl_start = std::chrono::system_clock::now();
+  for (int iter = 0; iter < niters; ++iter) {
+    OPENGL_CALL(glClear(GL_COLOR_BUFFER_BIT));
+    OPENGL_CALL(glDrawArrays(GL_TRIANGLES, 0, 6));
+    glFinish();
+  }
 
   glDeleteFramebuffers(1, &frame_buffer);
+
+  auto opengl_end = std::chrono::system_clock::now();
+  std::cout << "opengl: "
+            << ((opengl_end - opengl_start).count() / niters)
+            << std::endl;
 }
 
 void Workspace::Render(
