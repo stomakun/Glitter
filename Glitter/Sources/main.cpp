@@ -308,17 +308,17 @@ void TestRenderToTexture(int N, int niters) {
   }
   auto cpu_end = std::chrono::system_clock::now();
 
-  for (int i = 0; i < retrieved_data.size(); ++i) {
+  for (size_t i = 0; i < retrieved_data.size(); ++i) {
     assert(std::abs(retrieved_data[i] - cpu_result[i]) < 0.001f);
   }
 
   std::cout << "cpu:    "
-            << ((cpu_end - cpu_start).count() / niters)
+            << (std::chrono::duration_cast<std::chrono::microseconds>(cpu_end - cpu_start).count() / niters)
             << std::endl;
 }
 
 int main() {
-  Workspace &workspace = Workspace::GetInstance();
+  Workspace::GetInstance();
 
   TestRenderToTexture(50, /*niters=*/100);
 
@@ -577,7 +577,7 @@ void Workspace::Render(
 
   auto opengl_end = std::chrono::system_clock::now();
   std::cout << "opengl: "
-            << ((opengl_end - opengl_start).count() / niters)
+            << (std::chrono::duration_cast<std::chrono::microseconds>(opengl_end - opengl_start).count() / niters)
             << std::endl;
 }
 
