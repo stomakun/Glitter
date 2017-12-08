@@ -63,3 +63,8 @@ target_link_libraries(${PROJECT_NAME}
                       )
 set_target_properties(${PROJECT_NAME} PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/${PROJECT_NAME})
+
+find_package( OpenCL REQUIRED )
+include_directories( ${OPENCL_INCLUDE_DIRS} )
+add_executable(opencl Glitter/Sources/opencl.cpp)
+target_link_libraries(opencl ${OpenCL_LIBRARIES})
