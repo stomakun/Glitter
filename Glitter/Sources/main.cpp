@@ -72,13 +72,12 @@ static const char *fragment_shader_text = "#version 330 core\n"
     "out float color;\n"
     "void main() {\n"
     "  ivec2 pixel = ivec2(gl_FragCoord.xy);\n"
-    "  int idx = pixel.x;\n"
-    "  int row = idx / N;\n"
-    "  int col = idx % N;\n"
+    "  int row = pixel.y;\n"
+    "  int col = pixel.x;\n"
     "  color = 0.0;\n"
     "  for (int i = 0; i < N; i++) {\n"
-    "    float a = texelFetch(A, ivec2(row * N + i, 0), 0).r;\n"
-    "    float b = texelFetch(B, ivec2(i * N + col, 0), 0).r;\n"
+    "    float a = texelFetch(A, ivec2(i, row), 0).r;\n"
+    "    float b = texelFetch(B, ivec2(col, i), 0).r;\n"
     "    color += a * b;\n"
     "  }\n"
     "}\n";
@@ -260,8 +259,8 @@ void TestRenderToTexture(int N, int niters) {
   std::mt19937 mt(rd());
   std::uniform_real_distribution<float> dist(1.0f, 2.0f);
 
-  GLint width = N * N;
-  GLint height = 1;
+  GLint width = N;
+  GLint height = N;
   auto texture_size = static_cast<size_t>(width) * height;
 
   std::vector<GLfloat> texture0_data(texture_size, 0.0f);
