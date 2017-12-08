@@ -1,6 +1,9 @@
 cmake_minimum_required(VERSION 3.0)
 project(Glitter)
 
+find_package(OpenCL REQUIRED)
+include_directories(${OPENCL_INCLUDE_DIRS})
+
 option(GLFW_BUILD_DOCS OFF)
 option(GLFW_BUILD_EXAMPLES OFF)
 option(GLFW_BUILD_TESTS OFF)
@@ -60,11 +63,7 @@ target_link_libraries(${PROJECT_NAME}
                       glfw
                       ${GLFW_LIBRARIES}
                       ${GLAD_LIBRARIES}
+                      ${OpenCL_LIBRARIES}
                       )
 set_target_properties(${PROJECT_NAME} PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/${PROJECT_NAME})
-
-find_package( OpenCL REQUIRED )
-include_directories( ${OPENCL_INCLUDE_DIRS} )
-add_executable(opencl Glitter/Sources/opencl.cpp)
-target_link_libraries(opencl ${OpenCL_LIBRARIES})

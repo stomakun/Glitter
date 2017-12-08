@@ -8,6 +8,8 @@
 #include <vector>
 #include <random>
 
+int opencl(GLfloat *a, GLfloat *b, GLfloat *c, int iters, unsigned int N, int gpu = 1);
+
 namespace gl {
 
 inline const char *GLGetErrorString(GLenum error) {
@@ -315,12 +317,20 @@ void TestRenderToTexture(int N, int niters) {
   std::cout << "cpu:    "
             << (std::chrono::duration_cast<std::chrono::microseconds>(cpu_end - cpu_start).count() / niters)
             << std::endl;
+
+  std::vector<GLfloat> cl_result(static_cast<size_t>(width * height));
+    opencl(texture0_data.data(), texture1_data.data(), cl_result.data(), niters, (unsigned int)N);
+    opencl(texture0_data.data(), texture1_data.data(), cl_result.data(), niters, (unsigned int)N, 0);
+
+  for (size_t i = 0; i < retrieved_data.size(); ++i) {
+    assert(std::abs(cl_result[i] - cpu_result[i]) < 0.001f);
+  }
 }
 
 int main() {
   Workspace::GetInstance();
 
-  TestRenderToTexture(50, /*niters=*/100);
+  TestRenderToTexture(64, /*niters=*/100);
 
   return 0;
 }
