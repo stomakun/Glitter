@@ -67,16 +67,18 @@ static const char *fragment_shader_text = "#version 330 core\n"
     "uniform sampler2D A;\n"
     "uniform sampler2D B;\n"
     "uniform int N;\n"
-    "out float color;\n"
+    "out vec4 color;\n"
     "void main() {\n"
     "  ivec2 pixel = ivec2(gl_FragCoord.xy);\n"
     "  int row = pixel.y;\n"
     "  int col = pixel.x;\n"
-    "  color = 0.0;\n"
-    "  for (int i = 0; i < N; i++) {\n"
-    "    float a = texelFetch(A, ivec2(i, row), 0).r;\n"
-    "    float b = texelFetch(B, ivec2(col, i), 0).r;\n"
-    "    color += a * b;\n"
+    "  color = vec4(0.0, 0.0, 0.0, 0.0);\n"
+    "  for (int i = 0; i < N / 4; i++) {\n"
+    "    vec4 a = texelFetch(A, ivec2(i, row), 0);\n"
+    "    color += a.x * texelFetch(B, ivec2(col, i * 4), 0);\n"
+    "    color += a.y * texelFetch(B, ivec2(col, i * 4 + 1), 0);\n"
+    "    color += a.z * texelFetch(B, ivec2(col, i * 4 + 2), 0);\n"
+    "    color += a.w * texelFetch(B, ivec2(col, i * 4 + 3), 0);\n"
     "  }\n"
     "}\n";
 
@@ -319,7 +321,7 @@ void TestRenderToTexture(int N, int niters) {
 int main() {
   Workspace::GetInstance();
 
-  TestRenderToTexture(50, /*niters=*/100);
+  TestRenderToTexture(64, /*niters=*/100);
 
   return 0;
 }
@@ -351,8 +353,8 @@ Texture::Texture(const GLfloat *data, GLsizei width, GLsizei height)
 
   // Similar to cudaMemcpy.
   OPENGL_CALL(glTexImage2D(GL_TEXTURE_2D, /*level=*/0, GL_RGBA32F,
-                           width_, height_, /*border=*/0,
-                           GL_RED, GL_FLOAT, data));
+                           width_ / 4, height_, /*border=*/0,
+                           GL_RGBA, GL_FLOAT, data));
 
   // TODO(zhixunt): What are these?
   OPENGL_CALL(
@@ -382,7 +384,7 @@ void Texture::GetData(GLfloat *data) const {
   auto &workspace = Workspace::GetInstance();
   workspace.BindTextureUnit(workspace.NumTextureUnits() - 1, texture_);
 
-  glGetTexImage(GL_TEXTURE_2D, /*level=*/0, GL_RED, GL_FLOAT, data);
+  glGetTexImage(GL_TEXTURE_2D, /*level=*/0, GL_RGBA, GL_FLOAT, data);
 }
 
 GLuint Workspace::NumTextureUnits() {
@@ -563,7 +565,7 @@ void Workspace::Render(
   }
 
   OPENGL_CALL(glBindFramebuffer(GL_FRAMEBUFFER, frame_buffer));
-  OPENGL_CALL(glViewport(0, 0, output->width(), output->height()));
+  OPENGL_CALL(glViewport(0, 0, output->width() / 4, output->height()));
 
   auto opengl_start = std::chrono::system_clock::now();
   for (int iter = 0; iter < niters; ++iter) {
