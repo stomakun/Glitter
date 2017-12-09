@@ -75,7 +75,7 @@ static const char *fragment_shader_text = "#version 330 core\n"
     "  color = 0.0;\n"
     "  for (int i = 0; i < N; i++) {\n"
     "    float a = texelFetch(A, ivec2(i, row), 0).r;\n"
-    "    float b = texelFetch(B, ivec2(col, i), 0).r;\n"
+    "    float b = texelFetch(B, ivec2(i, col), 0).r;\n"
     "    color += a * b;\n"
     "  }\n"
     "}\n";
@@ -271,7 +271,11 @@ void TestRenderToTexture(int N, int niters) {
   for (size_t i = 0; i != texture_size; ++i) {
     texture1_data[i] = dist(mt);
   }
-  auto texture1 = workspace.CreateTexture(texture1_data.data(), width, height);
+    std::vector<GLfloat> texture1_data_trans(texture_size, 0.0f);
+    for (size_t i = 0; i != texture_size; ++i) {
+        texture1_data_trans[i] = texture1_data[(i % N) * N + i / N];
+    }
+  auto texture1 = workspace.CreateTexture(texture1_data_trans.data(), width, height);
 
   Program program = workspace.CreateProgram(fragment_shader_text);
 
