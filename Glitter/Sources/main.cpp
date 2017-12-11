@@ -293,43 +293,16 @@ void TestRenderToTexture(int N, int niters) {
   std::vector<GLfloat> retrieved_data(static_cast<size_t>(width * height));
   target_texture.GetData(retrieved_data.data());
 
-  std::vector<GLfloat> cpu_result(static_cast<size_t>(width * height));
-  auto cpu_start = std::chrono::system_clock::now();
-  for (int iter = 0; iter < niters; ++iter) {
-    for (int row = 0; row != N; ++row) {
-      for (int col = 0; col != N; ++col) {
-        cpu_result[row * N + col] = 0.0f;
-        for (int i = 0; i != N; ++i) {
-          GLfloat a = texture0_data[row * N + i];
-          GLfloat b = texture1_data[i * N + col];
-          cpu_result[row * N + col] += a * b;
-        }
-      }
-    }
-  }
-  auto cpu_end = std::chrono::system_clock::now();
-
-  for (size_t i = 0; i < retrieved_data.size(); ++i) {
-    assert(std::abs(retrieved_data[i] - cpu_result[i]) < 0.001f);
-  }
-
-  std::cout << "cpu:    "
-            << (std::chrono::duration_cast<std::chrono::microseconds>(cpu_end - cpu_start).count() / niters)
-            << std::endl;
-
   std::vector<GLfloat> cl_result(static_cast<size_t>(width * height));
     opencl(texture0_data.data(), texture1_data.data(), cl_result.data(), niters, (unsigned int)N);
     opencl(texture0_data.data(), texture1_data.data(), cl_result.data(), niters, (unsigned int)N, 0);
 
-  for (size_t i = 0; i < retrieved_data.size(); ++i) {
-    assert(std::abs(cl_result[i] - cpu_result[i]) < 0.001f);
-  }
 }
 
-int main() {
+int main(int argc, char **argv) {
   Workspace::GetInstance();
 
-  TestRenderToTexture(64, /*niters=*/100);
+  TestRenderToTexture(atoi(argv[1]), /*niters=*/atoi(argv[2]));
 
   return 0;
 }
