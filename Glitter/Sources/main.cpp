@@ -316,10 +316,10 @@ void TestRenderToTexture(int N, int niters) {
             << std::endl;
 }
 
-int main() {
+int main(int argc, char **argv) {
   Workspace::GetInstance();
 
-  TestRenderToTexture(50, /*niters=*/100);
+  TestRenderToTexture(atoi(argv[1]), /*niters=*/atoi(argv[2]));
 
   return 0;
 }
