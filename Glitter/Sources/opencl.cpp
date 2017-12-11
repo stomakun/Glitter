@@ -118,16 +118,16 @@ int opencl(GLfloat *a, GLfloat *b, GLfloat *c, int iters, unsigned int N, int gp
         printf("Error: Failed to allocate device memory!\n");
         exit(1);
     }
+    // Write our data set into the input array in device memory
+    //
+    err = clEnqueueWriteBuffer(commands, ma, CL_TRUE, 0, sizeof(float) * count, a, 0, nullptr, nullptr);
+    err |= clEnqueueWriteBuffer(commands, mb, CL_TRUE, 0, sizeof(float) * count, b, 0, nullptr, nullptr);
+    if (err != CL_SUCCESS) {
+        printf("Error: Failed to write to source array!\n");
+        exit(1);
+    }
     auto opencl_start = std::chrono::system_clock::now();
     for (int iter = 0; iter < iters; ++iter) {
-        // Write our data set into the input array in device memory
-        //
-        err = clEnqueueWriteBuffer(commands, ma, CL_TRUE, 0, sizeof(float) * count, a, 0, nullptr, nullptr);
-        err |= clEnqueueWriteBuffer(commands, mb, CL_TRUE, 0, sizeof(float) * count, b, 0, nullptr, nullptr);
-        if (err != CL_SUCCESS) {
-            printf("Error: Failed to write to source array!\n");
-            exit(1);
-        }
 
         // Set the arguments to our compute kernel
         //
